@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mein Quiz-Studio</title>
+<style>
+:root{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:#f4f6ff;background:#101322}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at top,#222c52,#101322 55%);min-height:100vh}
+header{padding:28px 18px 12px;text-align:center}h1{margin:0;font-size:clamp(2rem,6vw,3.2rem)}header p{color:#b9c2df;margin:8px 0}
+main{width:min(920px,94%);margin:18px auto 50px}.panel{background:#1a2035;border:1px solid #343d5e;border-radius:18px;padding:20px;margin:16px 0;box-shadow:0 12px 30px #0003}
+h2{margin:0 0 14px;font-size:1.35rem}.muted{color:#b9c2df}.field{display:grid;gap:7px;margin:12px 0}label{font-weight:650}input,textarea{width:100%;padding:12px;border-radius:10px;border:1px solid #465174;background:#101629;color:#fff;font:inherit}textarea{min-height:78px;resize:vertical}
+.answers{display:grid;grid-template-columns:1fr 1fr;gap:10px}.answerline{display:flex;align-items:center;gap:8px;background:#11182b;padding:8px;border-radius:10px}.answerline input[type=radio]{width:auto;accent-color:#8b9cff}.answerline input[type=text]{min-width:0}
+button{border:0;border-radius:11px;padding:11px 16px;font:inherit;font-weight:700;cursor:pointer;background:#7588ff;color:#0c1230}button.secondary{background:#303b5d;color:#fff}button.danger{background:#673b4a;color:#fff}button:disabled{opacity:.45;cursor:not-allowed}.actions{display:flex;flex-wrap:wrap;gap:9px;margin-top:14px}
+.question-card{padding:13px;border:1px solid #394465;border-radius:12px;margin:10px 0;background:#141b30}.question-card strong{display:block;margin-bottom:5px}
+.hidden{display:none!important}.choice{display:block;width:100%;text-align:left;margin:9px 0;background:#283454;color:#fff;border:1px solid #53628c}.choice.selected{outline:2px solid #9caaff;background:#394a7b}.choice.correct{background:#205b48}.choice.wrong{background:#713c4c}
+.status{margin-top:12px;padding:12px;border-radius:10px;background:#11182b}.progress{height:8px;background:#303a59;border-radius:8px;overflow:hidden;margin:12px 0}.progress span{display:block;height:100%;background:#8b9cff;width:0}
+@media(max-width:600px){.answers{grid-template-columns:1fr}.panel{padding:15px}}
+</style>
+</head>
+<body>
+<header><h1>🧠 Mein Quiz-Studio</h1><p>Erstelle dein eigenes Multiple-Choice-Quiz und spiele es direkt!</p></header>
+<main>
+<section class="panel" id="editor">
+<h2>✏️ Quiz erstellen</h2>
+<div class="field"><label for="quizTitle">Name deines Quiz</label><input id="quizTitle" maxlength="70" placeholder="z. B. Minecraft-Wissen"></div>
+<div class="field"><label for="questionText">Deine Frage</label><textarea id="questionText" maxlength="400" placeholder="Schreibe hier deine Frage ..."></textarea></div>
+<label>Antwortmöglichkeiten – markiere den Kreis bei der richtigen Antwort</label>
+<div class="answers" id="answerFields"></div>
+<div class="actions"><button id="addQuestion">＋ Frage hinzufügen</button><button class="secondary" id="clearForm">Felder leeren</button></div>
+<div class="status muted" id="editorStatus">Noch keine Fragen hinzugefügt.</div>
+<div id="questionList"></div>
+<div class="actions"><button id="startQuiz">▶ Quiz spielen</button><button class="secondary" id="saveQuiz">Speichern</button><button class="secondary" id="exportQuiz">Quiz exportieren</button><button class="secondary" id="importButton">Quiz importieren</button><input id="importFile" type="file" accept="application/json,.json" class="hidden"></div>
+</section>
+<section class="panel hidden" id="player">
+<h2 id="playTitle">Quiz</h2>
+<div class="muted" id="playCount"></div><div class="progress"><span id="progressBar"></span></div>
+<h3 id="playQuestion"></h3><div id="playChoices"></div>
+<div class="status hidden" id="feedback" aria-live="polite"></div>
+<div class="actions"><button id="checkAnswer" disabled>Antwort überprüfen</button><button id="nextQuestion" class="hidden">Weiter</button><button id="backEditor" class="secondary">Zurück zum Editor</button></div>
+</section>
+<section class="panel hidden" id="result">
+<h2>🏁 Quiz beendet!</h2><p id="scoreText"></p><div class="actions"><button id="again">Nochmal spielen</button><button class="secondary" id="resultEditor">Quiz bearbeiten</button></div>
+</section>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+let questions=[], selected=-1, current=0, score=0, locked=false, answers=[];
+function buildFields(){
+  $('answerFields').innerHTML='';
+  for(let i=0;i<4;i++){
+    const wrap=document.createElement('div');wrap.className='answerline';
+    const radio=document.createElement('input');radio.type='radio';radio.name='correct';radio.value=i;radio.checked=i===0;radio.setAttribute('aria-label','Richtige Antwort auswählen');
+    const input=document.createElement('input');input.type='text';input.maxLength=180;input.placeholder=`Antwort ${String.fromCharCode(65+i)}`;input.id='ans'+i;
+    wrap.append(radio,input);$('answerFields').append(wrap);
+  }
+}
+function clearForm(){ $('questionText').value='';for(let i=0;i<4;i++)$('ans'+i).value='';document.querySelector('input[name=correct][value="0"]').checked=true; }
+function renderList(){
+ $('questionList').innerHTML='';
+ questions.forEach((q,i)=>{const card=document.createElement('div');card.className='question-card';
+ const title=document.createElement('strong');title.textContent=`${i+1}. ${q.text}`;
+ const info=document.createElement('span');info.className='muted';info.textContent=`${q.options.length} Antworten · richtige Antwort: ${q.options[q.correct]}`;
+ const del=document.createElement('button');del.className='danger';del.textContent='Entfernen';del.style.marginTop='10px';del.onclick=()=>{questions.splice(i,1);renderList();};
+ card.append(title,info,del);$('questionList').append(card);});
+ $('editorStatus').textContent=questions.length?`${questions.length} Frage(n) bereit.`:'Noch keine Fragen hinzugefügt.';
+}
+$('addQuestion').onclick=()=>{
+ const text=$('questionText').value.trim(), opts=Array.from({length:4},(_,i)=>$('ans'+i).value.trim()), correct=Number(document.querySelector('input[name=correct]:checked').value);
+ if(!text||opts.some(x=>!x)){ $('editorStatus').textContent='Bitte fülle die Frage und alle vier Antworten aus.';return;}
+ if(new Set(opts).size!==4){$('editorStatus').textContent='Bitte gib vier unterschiedliche Antworten ein.';return;}
+ questions.push({text,options:opts,correct});clearForm();renderList();
+};
+$('clearForm').onclick=clearForm;
+function show(section){['editor','player','result'].forEach(x=>$(x).classList.toggle('hidden',x!==section));}
+function start(){if(!questions.length){$('editorStatus').textContent='Füge zuerst mindestens eine Frage hinzu.';return;}current=0;score=0;answers=[];show('player');renderQuestion();}
+function renderQuestion(){
+ locked=false;selected=-1;const q=questions[current];
+ $('playTitle').textContent=$('quizTitle').value.trim()||'Mein Quiz';
+ $('playCount').textContent=`Frage ${current+1} von ${questions.length} · Punkte: ${score}`;
+ $('progressBar').style.width=`${current/questions.length*100}%`;
+ $('playQuestion').textContent=q.text;$('playChoices').innerHTML='';
+ q.options.forEach((opt,i)=>{const b=document.createElement('button');b.className='choice';b.textContent=`${String.fromCharCode(65+i)}. ${opt}`;b.onclick=()=>{if(locked)return;selected=i;document.querySelectorAll('.choice').forEach(x=>x.classList.remove('selected'));b.classList.add('selected');$('checkAnswer').disabled=false;};$('playChoices').append(b);});
+ $('feedback').classList.add('hidden');$('checkAnswer').classList.remove('hidden');$('checkAnswer').disabled=true;$('nextQuestion').classList.add('hidden');
+}
+$('checkAnswer').onclick=()=>{if(selected<0||locked)return;locked=true;const q=questions[current],buttons=[...document.querySelectorAll('.choice')];buttons.forEach((b,i)=>{b.disabled=true;if(i===q.correct)b.classList.add('correct');if(i===selected&&i!==q.correct)b.classList.add('wrong');});
+ const ok=selected===q.correct;if(ok)score++;answers.push(ok);$('feedback').textContent=ok?'✅ Richtig! Gut gemacht.':`❌ Nicht ganz. Richtig wäre: ${q.options[q.correct]}`;$('feedback').classList.remove('hidden');$('playCount').textContent=`Frage ${current+1} von ${questions.length} · Punkte: ${score}`;$('checkAnswer').classList.add('hidden');$('nextQuestion').classList.remove('hidden');$('nextQuestion').textContent=current===questions.length-1?'Ergebnis anzeigen':'Nächste Frage';};
+$('nextQuestion').onclick=()=>{if(current<questions.length-1){current++;renderQuestion();}else{show('result');$('progressBar').style.width='100%';$('scoreText').textContent=`Du hast ${score} von ${questions.length} Punkten erreicht (${Math.round(score/questions.length*100)} %).`; }};
+$('startQuiz').onclick=start;$('again').onclick=start;$('backEditor').onclick=()=>show('editor');$('resultEditor').onclick=()=>show('editor');
+function save(){localStorage.setItem('meinQuizStudio',JSON.stringify({title:$('quizTitle').value,questions}));$('editorStatus').textContent='Quiz wurde auf diesem Gerät gespeichert.';}
+$('saveQuiz').onclick=save;
+$('exportQuiz').onclick=()=>{const data={title:$('quizTitle').value,questions};const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='mein-quiz.json';a.click();URL.revokeObjectURL(a.href);};
+$('importButton').onclick=()=>$('importFile').click();
+$('importFile').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{const d=JSON.parse(await f.text());if(!Array.isArray(d.questions))throw Error();questions=d.questions.filter(q=>typeof q.text==='string'&&Array.isArray(q.options)&&q.options.length===4&&Number.isInteger(q.correct)&&q.correct>=0&&q.correct<4);$('quizTitle').value=d.title||'';renderList();$('editorStatus').textContent='Quiz erfolgreich importiert.';}catch{$('editorStatus').textContent='Datei konnte nicht als Quiz gelesen werden.';}e.target.value='';};
+try{const saved=JSON.parse(localStorage.getItem('meinQuizStudio')||'null');if(saved){$('quizTitle').value=saved.title||'';questions=Array.isArray(saved.questions)?saved.questions:[];renderList();}}catch{}
+buildFields();
+</script>
+</body></html>
